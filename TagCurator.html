@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tag Curator</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://stuk.github.io/jszip/dist/jszip.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+            margin: 0;
+            height: 100vh;
+            box-sizing: border-box;
+        }
+        .header {
+            text-align: center;
+            font-size: 24px;
+            margin-bottom: 20px;
+        }
+        .main-content {
+            display: flex;
+            flex-direction: row;
+            justify-content: space-between;
+            flex-grow: 1;
+            gap: 20px; /* Add spacing between sections */
+        }
+        .section-wrapper {
+            width: 25%;
+            box-sizing: border-box;
+        }
+        .section-container {
+            background-color: #f0f0f0;
+            padding: 20px;
+            padding-top: 40px; /* Add padding to top */
+            border-radius: 10px;
+            box-sizing: border-box;
+        }
+        .section-header {
+            background-color: #e0e0e0; /* Slightly darker grey */
+            padding: 10px;
+            border-radius: 10px 10px 0 0;
+            font-size: 18px;
+            font-weight: bold;
+            position: relative;
+            z-index: 1; /* Ensure it stays on top */
+            margin-bottom: -20px; /* Overlap the container */
+        }
+        .chart-section {
+            width: 73%;
+            background-color: #f0f0f0;
+            padding: 20px;
+            border-radius: 10px;
+            box-sizing: border-box;
+        }
+        .input-section {
+            display: flex;
+            flex-direction: column;
+        }
+        input, button {
+            width: 100%;
+            margin-bottom: 10px;
+            padding: 8px;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #007BFF;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        h3 {
+            margin-top: 0;
+        }
+        .sub-title {
+            font-size: 16px;
+        }
+        .download-links {
+            margin-top: 20px;
+        }
+        canvas {
+            width: 100%;
+            height: 400px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        Tag Curator
+    </div>
+    <div class="main-content">
+        <div class="section-wrapper">
+            <div class="section-header">Tag Curation</div>
+            <div class="section-container">
+                <div class="input-section">
+                    <h3 class="sub-title">Select Directory:</h3>
+                    <p>The files you select are uploaded to your browser only, not to any server.</p>
+                    <input type="file" id="fileInput" webkitdirectory multiple>
+                    
+                    <h3 class="sub-title">Trigger:</h3>
+                    <input type="text" id="trigger" placeholder="Enter trigger...">
+                    
+                    <h3 class="sub-title">Absorb these tags:</h3>
+                    <input type="text" id="absorbTags" placeholder="Enter absorb tags...">
+                    
+                    <h3 class="sub-title">Extra absorbed tags:</h3>
+                    <input type="text" id="extraAbsorbTags" placeholder="absurdres, highres, bangs, breasts, 1girl, solo">
+                    
+                    <button onclick="processFiles()">Process Files</button>
+                    <div class="download-links">
+                        <button id="downloadZip">Download All Edited Files as ZIP</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section-wrapper" style="width: 73%;">
+            <div class="section-header">Tag Stats</div>
+            <div class="section-container">
+                <canvas id="tagChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let chartInstance = null;
+    
+        function processFiles() {
+            const inputElement = document.getElementById('fileInput');
+            const files = inputElement.files;
+            const trigger = document.getElementById('trigger').value.split(',').map(tag => tag.trim() + ',').join(' ');
+            const absorbTags = document.getElementById('absorbTags').value.split(',').map(tag => tag.trim());
+            const extraAbsorbTags = document.getElementById('extraAbsorbTags').value.split(',').map(tag => tag.trim());
+    
+            const allAbsorbTags = new Set([...absorbTags, ...extraAbsorbTags]);
+            const tagCount = {};
+            const zip = new JSZip();
+    
+            // Track existing .txt files and images
+            const existingTxtFiles = new Set();
+            const imageFileNames = new Set();
+    
+            // Convert FileList to array
+            const fileArray = Array.from(files);
+    
+            // Check existing files
+            fileArray.forEach(file => {
+                if (file.name.endsWith('.txt')) {
+                    existingTxtFiles.add(file.name);
+                } else if (file.name.match(/\.(jpg|jpeg|png|gif)$/)) {
+                    imageFileNames.add(file.name.replace(/\.[^/.]+$/, ''));
+                }
+            });
+    
+            // Track newly created .txt files
+            const newTxtFiles = [];
+    
+            // Process existing files
+            fileArray.forEach(file => {
+                const fileNameWithoutExtension = file.name.replace(/\.[^/.]+$/, '');
+    
+                if (file.name.endsWith('.txt')) {
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        let content = e.target.result;
+    
+                        // Only add trigger when processing existing .txt files
+                        content = trigger + " " + content;  // Add trigger
+    
+                        const words = new Set(content.split(',').map(word => word.trim())); // Set to avoid counting duplicates
+                        words.forEach(word => {
+                            if (!allAbsorbTags.has(word) && word.trim() !== '') {
+                                tagCount[word] = (tagCount[word] || 0) + 1;
+                            }
+                        });
+    
+                        // Absorb tags
+                        for (const tag of allAbsorbTags) {
+                            const regex = new RegExp(`\\b${tag}\\b`, 'g');
+                            content = content.replace(regex, '');
+                        }
+    
+                        // Add modified content to ZIP file
+                        zip.file(file.name, content);
+                    };
+                    reader.readAsText(file);
+                } else if (file.name.match(/\.(jpg|jpeg|png|gif)$/)) {
+                    // Handle image files by creating a corresponding txt file if it doesn't exist
+                    const txtFileName = fileNameWithoutExtension + '.txt';
+                    if (!existingTxtFiles.has(txtFileName)) {
+                        const placeholderText = " ";  // Only use trigger when processing existing .txt files
+                        zip.file(txtFileName, placeholderText);
+                        newTxtFiles.push(new File([placeholderText], txtFileName, { type: 'text/plain' }));
+                    }
+                }
+            });
+    
+            // Process newly created .txt files
+            newTxtFiles.forEach(file => {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    let content = e.target.result;
+    
+                    // Add trigger only once here
+                    content = trigger + " " + content;  // Add trigger
+    
+                    const words = new Set(content.split(',').map(word => word.trim())); // Set to avoid counting duplicates
+                    words.forEach(word => {
+                        if (!allAbsorbTags.has(word) && word.trim() !== '') {
+                            tagCount[word] = (tagCount[word] || 0) + 1;
+                        }
+                    });
+    
+                    // Absorb tags
+                    for (const tag of allAbsorbTags) {
+                        const regex = new RegExp(`\\b${tag}\\b`, 'g');
+                        content = content.replace(regex, '');
+                    }
+    
+                    // Add modified content to ZIP file
+                    zip.file(file.name, content);
+                };
+                reader.readAsText(file);
+            });
+    
+            setTimeout(() => {
+                // Sorting tags by frequency and limiting to top 20
+                const sortedTags = Object.entries(tagCount).sort((a, b) => b[1] - a[1]).slice(0, 20);
+                const labels = sortedTags.map(entry => entry[0]);
+                const values = sortedTags.map(entry => entry[1]);
+    
+                createChart(labels, values);
+    
+                // Trigger ZIP download
+                document.getElementById('downloadZip').onclick = function() {
+                    zip.generateAsync({ type: 'blob' }).then(function(content) {
+                        const link = document.createElement('a');
+                        link.href = URL.createObjectURL(content);
+                        link.download = 'edited_text_files.zip';
+                        link.click();
+                    });
+                };
+            }, 1000); // Delay to allow file reading and processing to complete
+        }
+    
+        function createChart(labels, data) {
+            if (chartInstance) {
+                chartInstance.destroy(); // Destroy the existing chart instance
+            }
+    
+            const ctx = document.getElementById('tagChart').getContext('2d');
+            chartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Tag Frequency',
+                        data: data,
+                        backgroundColor: 'rgba(0, 123, 255, 0.8)',
+                        borderColor: 'rgba(0, 123, 255, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+        }
+    </script>
+    
+    
+    
+</body>
+</html>
